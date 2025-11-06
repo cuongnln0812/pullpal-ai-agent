@@ -1,5 +1,7 @@
 import os
 import re
+import time
+import math
 import requests
 from typing import List, Dict, Any, Optional, Union
 from urllib.parse import urlparse, parse_qs
@@ -63,18 +65,70 @@ def fetch_pr_files(
     if token:
         headers["Authorization"] = f"token {token}"
 
-    files, page = [], 1
+    files: List[Dict[str, Any]] = []
+    page = 1
+
+    # Retry/backoff configuration
+    max_attempts = 4
+    base_backoff = 1.0  # seconds
+    max_auto_wait = int(os.getenv("GITHUB_MAX_AUTO_WAIT", "300"))  # seconds
+
     while True:
         url = f"{GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}/files?page={page}&per_page=100"
-        resp = requests.get(url, headers=headers)
 
-        if resp.status_code == 403 and "X-RateLimit-Remaining" in resp.headers:
-            reset_time = resp.headers.get("X-RateLimit-Reset")
-            raise RuntimeError(
-                f"GitHub API rate limit exceeded. Reset at {reset_time}."
-            )
+        attempt = 0
+        while True:
+            try:
+                resp = requests.get(url, headers=headers, timeout=30)
+            except requests.RequestException as e:
+                attempt += 1
+                if attempt >= max_attempts:
+                    raise
+                sleep = base_backoff * (2 ** (attempt - 1))
+                time.sleep(sleep)
+                continue
 
-        resp.raise_for_status()
+            # Handle rate limit explicitly
+            if resp.status_code == 403 and "X-RateLimit-Remaining" in resp.headers:
+                remaining = resp.headers.get("X-RateLimit-Remaining")
+                reset_header = resp.headers.get("X-RateLimit-Reset")
+                try:
+                    reset_ts = int(reset_header) if reset_header else None
+                except Exception:
+                    reset_ts = None
+
+                if remaining == "0" and reset_ts:
+                    now_ts = int(time.time())
+                    wait = max(0, reset_ts - now_ts)
+                    # If wait is short, auto-sleep; otherwise surface helpful error
+                    if wait <= max_auto_wait:
+                        print(f"GitHub rate limit reached; sleeping {wait}s until reset...")
+                        time.sleep(wait + 1)
+                        # after sleeping, retry the same page
+                        continue
+                    else:
+                        reset_time_str = reset_header
+                        raise RuntimeError(
+                            f"GitHub API rate limit exceeded. Reset at {reset_time_str} (in ~{wait}s). "
+                            "Set a GITHUB_TOKEN environment variable to increase rate limits, or wait until reset."
+                        )
+
+            # For other 403/4xx/5xx errors, do exponential backoff a few times
+            if resp.status_code >= 400:
+                attempt += 1
+                if attempt >= max_attempts:
+                    # Surface a useful message for 404/403
+                    try:
+                        resp.raise_for_status()
+                    except Exception:
+                        raise
+                sleep = base_backoff * (2 ** (attempt - 1))
+                time.sleep(sleep)
+                continue
+
+            # Success
+            break
+
         data = resp.json()
         if not data:
             break

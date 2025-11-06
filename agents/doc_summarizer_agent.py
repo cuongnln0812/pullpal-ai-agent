@@ -1,19 +1,15 @@
 import os
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.schema import HumanMessage
+from agents.llm_client import get_llm_client
+from agents.compat import HumanMessage
 from agents.state import TestCoverageAgentState
 
 load_dotenv()
 
 # --------------------------
-# Initialize Google GenAI LLM
+# Initialize LLM client (uses HOST_URL if set, otherwise langchain)
 # --------------------------
-llm = ChatGoogleGenerativeAI(
-    api_key=os.getenv("GOOGLE_API_KEY"),
-    model="gemini-2.0-flash",
-    temperature=0
-)
+llm = get_llm_client()
 
 
 def doc_summarizer_agent(state: TestCoverageAgentState) -> TestCoverageAgentState:

@@ -1,6 +1,6 @@
 import streamlit as st
 from github_fetcher import parse_github_pr_url
-from pr_graph import workflow
+from agent_orchestration import workflow
 from agents.state import TestCoverageAgentState
 
 st.set_page_config(page_title="🛠 PR Review Agent", layout="wide")
@@ -52,10 +52,50 @@ if st.button("🚀 Start PR Review") and pr_url:
         st.subheader("📝 Code Review Findings")
         if result['findings']:
             for f in result['findings']:
-                with st.expander(f"{f['filename']} ({len(f['issues'])} issues)"):
-                    for issue in f["issues"]:
-                        st.markdown(f"**[{issue['type'].upper()}]** {issue['message']}")
-                        st.markdown(f"*Suggestion:* {issue['suggestion']}")
+                with st.expander(f"📄 {f['filename']} ({len(f['issues'])} issue{'s' if len(f['issues']) != 1 else ''})"):
+                    for idx, issue in enumerate(f["issues"], 1):
+                        # Issue header with badge
+                        issue_type = issue['type'].upper()
+                        type_color = {
+                            'BUG': '🐛',
+                            'SECURITY': '🔒',
+                            'PERFORMANCE': '⚡',
+                            'STYLE': '💅'
+                        }.get(issue_type, '📌')
+                        
+                        st.markdown(f"### {type_color} Issue #{idx}: {issue_type}")
+                        
+                        # Display line numbers if available
+                        if 'line_start' in issue and issue.get('line_start'):
+                            if issue.get('line_end') and issue['line_end'] != issue['line_start']:
+                                st.caption(f"📍 Lines {issue['line_start']}-{issue['line_end']}")
+                            else:
+                                st.caption(f"📍 Line {issue['line_start']}")
+                        
+                        # Display code snippet if available
+                        if 'code_snippet' in issue and issue.get('code_snippet'):
+                            st.markdown("**Code:**")
+                            # Detect language from filename
+                            import os
+                            _, ext = os.path.splitext(f['filename'])
+                            lang_map = {
+                                '.py': 'python', '.java': 'java', '.js': 'javascript',
+                                '.ts': 'typescript', '.go': 'go', '.rb': 'ruby',
+                                '.php': 'php', '.cs': 'csharp', '.cpp': 'cpp',
+                                '.c': 'c', '.rs': 'rust', '.kt': 'kotlin'
+                            }
+                            language = lang_map.get(ext.lower(), 'text')
+                            st.code(issue['code_snippet'], language=language)
+                        
+                        # Issue description
+                        st.markdown(f"**Issue:** {issue['message']}")
+                        
+                        # Suggestion in a highlighted box
+                        st.info(f"💡 **Suggestion:** {issue['suggestion']}")
+                        
+                        # Add divider between issues
+                        if idx < len(f['issues']):
+                            st.divider()
         else:
             st.info("✅ No code review issues detected.")
 

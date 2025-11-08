@@ -14,6 +14,9 @@ class PRFetcherAgentState:
     pr_number: Optional[int] = None
     files: List[Dict[str, Any]] = field(default_factory=list)
     github_token: Optional[str] = None  # For private repo access
+    
+    # Repository context for better code understanding
+    repo_context: Optional[Dict[str, Any]] = None  # README, project structure, tech stack
 
 
 @dataclass

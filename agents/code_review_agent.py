@@ -281,8 +281,39 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
             best_practices = LANGUAGE_BEST_PRACTICES.get(language, [])
             best_practices_text = "\n".join(f"- {bp}" for bp in best_practices) if best_practices else "Follow general coding standards"
             
+            # Build repository context section
+            repo_context_text = ""
+            if hasattr(state, 'repo_context') and state.repo_context:
+                ctx = state.repo_context
+                context_parts = []
+                 
+                if ctx.get("description"):
+                    context_parts.append(f"Project Description: {ctx['description']}")
+                
+                if ctx.get("languages"):
+                    langs = ", ".join(ctx['languages'].keys())
+                    context_parts.append(f"Tech Stack: {langs}")
+                
+                if ctx.get("topics"):
+                    topics = ", ".join(ctx['topics'][:5])
+                    context_parts.append(f"Topics: {topics}")
+                
+                if ctx.get("project_structure"):
+                    dirs = ", ".join(ctx['project_structure'][:10])
+                    context_parts.append(f"Main Directories: {dirs}")
+                
+                if ctx.get("readme"):
+                    context_parts.append(f"README Summary:\n{ctx['readme'][:500]}...")
+                
+                if ctx.get("package_files"):
+                    for pkg_file, content in ctx['package_files'].items():
+                        context_parts.append(f"\n{pkg_file}:\n{content[:300]}...")
+                
+                if context_parts:
+                    repo_context_text = "\n\nRepository Context:\n" + "\n".join(context_parts)
+            
             prompt = f"""
-You are a senior {language} code reviewer.
+You are a senior {language} code reviewer with deep understanding of this codebase.
 ONLY return valid JSON (no explanations, no markdown, no code blocks).
 
 Analyze this GitHub PR diff for a {language} file:
@@ -291,13 +322,16 @@ Analyze this GitHub PR diff for a {language} file:
 - Security vulnerabilities
 - Performance problems
 - Violations of {language} best practices
+- Consistency with the existing codebase and architecture
 
 {language} Best Practices to check:
 {best_practices_text}
+{repo_context_text}
 
 For each issue found, include:
 1. The specific line number or range where the issue occurs (look for line numbers in the diff)
 2. A snippet of the problematic code (extract from the diff)
+3. Consider the project context and architecture when suggesting improvements
 
 Return ONLY a JSON array of objects (empty array [] if no issues found):
 [

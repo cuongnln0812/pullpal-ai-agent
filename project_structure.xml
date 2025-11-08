@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="PullPal-AI-Agent" version="1.0" created="2025-11-08">
+    
+    <!-- High-Level Architecture -->
+    <architecture>
+        <layer name="Presentation" type="UI">
+            <component name="StreamlitUI" file="ui.py" description="Web interface for PR analysis">
+                <responsibility>User input collection</responsibility>
+                <responsibility>Display formatted results</responsibility>
+                <interaction target="OrchestrationLayer" type="invokes"/>
+            </component>
+            <component name="CLI" file="agent_orchestration.py" description="Command-line interface entry point">
+                <interaction target="OrchestrationLayer" type="invokes"/>
+            </component>
+        </layer>
+        
+        <layer name="Orchestration" type="Workflow">
+            <component name="LangGraphWorkflow" description="StateGraph orchestration engine">
+                <framework>LangGraph</framework>
+                <responsibility>Sequential agent execution</responsibility>
+                <responsibility>State management between agents</responsibility>
+                <interaction target="AgentLayer" type="executes"/>
+            </component>
+        </layer>
+        
+        <layer name="Agent" type="BusinessLogic">
+            <component name="PRFetcherAgent" file="agents/pr_fetcher_agent.py">
+                <responsibility>Parse PR URL</responsibility>
+                <responsibility>Fetch PR files from GitHub</responsibility>
+                <responsibility>Fetch repository context</responsibility>
+                <output>owner, repo, pr_number, files, repo_context</output>
+                <interaction target="GitHubFetcher" type="uses"/>
+            </component>
+            
+            <component name="CodeReviewAgent" file="agents/code_review_agent.py">
+                <responsibility>Detect file language</responsibility>
+                <responsibility>Run static code checks</responsibility>
+                <responsibility>Analyze code with LLM</responsibility>
+                <responsibility>Generate code review findings</responsibility>
+                <output>findings (issues, suggestions, line numbers)</output>
+                <interaction target="LLMClient" type="uses"/>
+                <supportedLanguages>
+                    <language>Python</language>
+                    <language>Java</language>
+                    <language>JavaScript</language>
+                    <language>TypeScript</language>
+                    <language>Go</language>
+                    <language>Ruby</language>
+                    <language>PHP</language>
+                    <language>C#</language>
+                    <language>Kotlin</language>
+                    <language>Rust</language>
+                    <language>Swift</language>
+                    <language>Scala</language>
+                    <language>C++</language>
+                    <language>C</language>
+                </supportedLanguages>
+            </component>
+            
+            <component name="TestCoverageAgent" file="agents/test_coverage_agent.py">
+                <responsibility>Detect missing test files</responsibility>
+                <responsibility>Extract added functions from code</responsibility>
+                <responsibility>Generate test stubs using LLM</responsibility>
+                <output>coverage_findings (missing tests, generated test code)</output>
+                <interaction target="LLMClient" type="uses"/>
+                <supportedFrameworks>
+                    <framework language="Python">pytest</framework>
+                    <framework language="Java">JUnit 5</framework>
+                    <framework language="JavaScript">Jest</framework>
+                    <framework language="Ruby">RSpec</framework>
+                    <framework language="PHP">PHPUnit</framework>
+                    <framework language="C#">xUnit</framework>
+                    <framework language="Go">Go testing</framework>
+                    <framework language="Rust">Rust tests</framework>
+                </supportedFrameworks>
+            </component>
+            
+            <component name="DocSummarizerAgent" file="agents/doc_summarizer_agent.py">
+                <responsibility>Count file changes (added, modified, removed)</responsibility>
+                <responsibility>Count new functions and classes</responsibility>
+                <responsibility>Generate natural language PR summary</responsibility>
+                <output>pr_summary (natural language text)</output>
+                <interaction target="LLMClient" type="uses"/>
+            </component>
+        </layer>
+        
+        <layer name="Integration" type="Services">
+            <component name="GitHubFetcher" file="github_fetcher.py">
+                <responsibility>Parse GitHub PR URLs</responsibility>
+                <responsibility>Fetch PR files with retry logic</responsibility>
+                <responsibility>Fetch repository context (README, languages, dependencies, structure)</responsibility>
+                <responsibility>Handle rate limiting</responsibility>
+                <features>
+                    <feature>Rate limit handling with auto-retry</feature>
+                    <feature>Exponential backoff for errors</feature>
+                    <feature>Support for private repos with token</feature>
+                    <feature>Pagination for large PRs</feature>
+                </features>
+                <interaction target="GitHubAPI" type="calls"/>
+            </component>
+            
+            <component name="LLMClient" file="agents/llm_client.py">
+                <responsibility>Unified interface for multiple LLM backends</responsibility>
+                <responsibility>Route requests to OpenAI or Google Gemini</responsibility>
+                <responsibility>Handle LLM errors gracefully</responsibility>
+                <modes>
+                    <mode name="OpenAI" condition="HOST_URL is set">
+                        <client>OpenAI SDK with custom base_url</client>
+                    </mode>
+                    <mode name="Gemini" condition="HOST_URL is not set">
+                        <client>langchain_google_genai.ChatGoogleGenerativeAI</client>
+                    </mode>
+                </modes>
+                <interaction target="LLMService" type="calls"/>
+            </component>
+        </layer>
+        
+        <layer name="External" type="Services">
+            <service name="GitHubAPI" url="https://api.github.com">
+                <description>GitHub REST API for PR and repository data</description>
+                <rateLimit>
+                    <unauthenticated>60 requests/hour</unauthenticated>
+                    <authenticated>5000 requests/hour</authenticated>
+                </rateLimit>
+            </service>
+            
+            <service name="LLMService">
+                <provider name="OpenAI" api="https://api.openai.com"/>
+                <provider name="GoogleGemini" api="Google AI Studio"/>
+            </service>
+        </layer>
+    </architecture>
+    
+    <!-- State Management -->
+    <stateManagement>
+        <stateHierarchy>
+            <state name="PRFetcherAgentState" level="1">
+                <field name="pr_url" type="str" required="true"/>
+                <field name="token" type="Optional[str]"/>
+                <field name="owner" type="Optional[str]"/>
+                <field name="repo" type="Optional[str]"/>
+                <field name="pr_number" type="Optional[int]"/>
+                <field name="files" type="List[Dict]"/>
+                <field name="github_token" type="Optional[str]"/>
+                <field name="repo_context" type="Optional[Dict]" description="README, languages, dependencies, structure"/>
+                <description>Base state with PR info and repository context</description>
+            </state>
+            
+            <state name="CodeReviewAgentState" level="2" inherits="PRFetcherAgentState">
+                <field name="findings" type="List[Dict]">
+                    <schema>
+                        <field name="type" type="str" description="Issue category"/>
+                        <field name="message" type="str" description="Issue description"/>
+                        <field name="suggestion" type="str" description="How to fix"/>
+                        <field name="line_start" type="int"/>
+                        <field name="line_end" type="int"/>
+                        <field name="code_snippet" type="str"/>
+                    </schema>
+                </field>
+                <description>Adds code review findings with issues per file</description>
+            </state>
+            
+            <state name="TestCoverageAgentState" level="3" inherits="CodeReviewAgentState">
+                <field name="coverage_findings" type="List[Dict]">
+                    <schema>
+                        <field name="filename" type="str"/>
+                        <field name="issue" type="str"/>
+                        <field name="generated_tests" type="List[str]"/>
+                    </schema>
+                </field>
+                <description>Adds test coverage gaps and generated test stubs</description>
+            </state>
+            
+            <state name="PRSummaryAgentState" level="4" inherits="TestCoverageAgentState">
+                <field name="pr_summary" type="Optional[str]" description="Natural language summary"/>
+                <description>Final state with natural language summary</description>
+            </state>
+        </stateHierarchy>
+    </stateManagement>
+    
+    <!-- Data Flow Pipeline -->
+    <pipeline>
+        <stage order="1" name="Input">
+            <input>PR URL + GitHub Token (optional)</input>
+            <output>Initial PRFetcherAgentState</output>
+        </stage>
+        
+        <stage order="2" name="PRFetcher" agent="PRFetcherAgent">
+            <process>Parse PR URL</process>
+            <process>Fetch PR files from GitHub API</process>
+            <process>Parse files into normalized format</process>
+            <process>Fetch repository context (README, languages, structure)</process>
+            <output>Enhanced state with owner, repo, pr_number, files, repo_context</output>
+        </stage>
+        
+        <stage order="3" name="CodeReview" agent="CodeReviewAgent">
+            <process>For each file: detect language</process>
+            <process>Run static checks (TODO, FIXME, console.log)</process>
+            <process>Extract code context with line numbers</process>
+            <process>Build prompt with repository context</process>
+            <process>Invoke LLM for analysis</process>
+            <process>Parse JSON response and enhance with line numbers</process>
+            <output>State with findings array</output>
+        </stage>
+        
+        <stage order="4" name="TestCoverage" agent="TestCoverageAgent">
+            <process>For each non-test file: get language config</process>
+            <process>Extract added functions using language patterns</process>
+            <process>Check if test files were modified</process>
+            <process>Generate test stubs for missing tests</process>
+            <output>State with coverage_findings array</output>
+        </stage>
+        
+        <stage order="5" name="Summarize" agent="DocSummarizerAgent">
+            <process>Count file changes (added, modified, removed)</process>
+            <process>Count new functions and classes</process>
+            <process>Count generated tests</process>
+            <process>Build statistics prompt and invoke LLM</process>
+            <output>Final state with pr_summary</output>
+        </stage>
+        
+        <stage order="6" name="Display">
+            <process>Render results in Streamlit UI</process>
+            <sections>
+                <section>PR Overview</section>
+                <section>Code Review Findings</section>
+                <section>Test Coverage</section>
+                <section>PR Summary</section>
+            </sections>
+        </stage>
+    </pipeline>
+    
+    <!-- Design Patterns -->
+    <designPatterns>
+        <pattern name="State Inheritance Chain">
+            <description>Each agent adds fields while maintaining access to all previous data</description>
+            <implementation>PRFetcherAgentState → CodeReviewAgentState → TestCoverageAgentState → PRSummaryAgentState</implementation>
+        </pattern>
+        
+        <pattern name="Adapter Pattern">
+            <description>Single interface abstracts multiple LLM backends</description>
+            <component>LLMClient</component>
+            <backends>
+                <backend>OpenAI</backend>
+                <backend>Google Gemini</backend>
+            </backends>
+        </pattern>
+        
+        <pattern name="Pipeline Pattern">
+            <description>Sequential execution with state passing between agents</description>
+            <framework>LangGraph StateGraph</framework>
+        </pattern>
+        
+        <pattern name="Strategy Pattern">
+            <description>Different behavior based on file type detection</description>
+            <component>CodeReviewAgent, TestCoverageAgent</component>
+        </pattern>
+    </designPatterns>
+    
+    <!-- Error Handling Strategy -->
+    <errorHandling>
+        <strategy type="RateLimit">
+            <condition>GitHub API rate limit exceeded</condition>
+            <action priority="1">Check wait time from response headers</action>
+            <action priority="2">Auto-sleep and retry if wait time is short</action>
+            <action priority="3">Surface error to user if wait time is long</action>
+        </strategy>
+        
+        <strategy type="NetworkError">
+            <condition>Network connectivity issues</condition>
+            <action>Exponential backoff retry up to max attempts</action>
+            <action>Surface error after max retries exceeded</action>
+        </strategy>
+        
+        <strategy type="InvalidJSON">
+            <condition>LLM returns malformed JSON</condition>
+            <action priority="1">Extract JSON with regex patterns</action>
+            <action priority="2">Return empty array if extraction fails</action>
+        </strategy>
+        
+        <strategy type="LLMFailure">
+            <condition>LLM API call fails</condition>
+            <action>Use fallback template for summary</action>
+        </strategy>
+    </errorHandling>
+    
+    <!-- Environment Configuration -->
+    <configuration>
+        <environment>
+            <variable name="GOOGLE_API_KEY" required="true">
+                <description>API key for LLM service (OpenAI or Google)</description>
+            </variable>
+            <variable name="GOOGLE_MODEL_NAME" required="true">
+                <description>Model identifier for LLM</description>
+            </variable>
+            <variable name="HOST_URL" required="false">
+                <description>Custom API endpoint (triggers OpenAI SDK mode)</description>
+                <defaultBehavior>If not set, uses Google Gemini via langchain</defaultBehavior>
+            </variable>
+            <variable name="GITHUB_TOKEN" required="false">
+                <description>GitHub personal access token for private repos</description>
+                <benefit>Increases rate limit from 60/hr to 5000/hr</benefit>
+            </variable>
+        </environment>
+    </configuration>
+    
+    <!-- Dependencies -->
+    <dependencies>
+        <category name="Core">
+            <dependency name="langchain" purpose="Agent framework"/>
+            <dependency name="langgraph" purpose="State graph orchestration"/>
+            <dependency name="streamlit" purpose="Web UI framework"/>
+        </category>
+        
+        <category name="LLM Providers">
+            <dependency name="langchain_google_genai" purpose="Google Gemini integration"/>
+            <dependency name="openai" purpose="OpenAI SDK"/>
+        </category>
+        
+        <category name="Utilities">
+            <dependency name="requests" purpose="HTTP client for GitHub API"/>
+            <dependency name="python-dotenv" purpose="Environment variable management"/>
+        </category>
+    </dependencies>
+    
+    <!-- Performance Characteristics -->
+    <performance>
+        <bottleneck component="GitHubAPI">
+            <issue>Rate limits (60 requests/hour unauthenticated)</issue>
+            <mitigation>Token authentication (5000 requests/hour)</mitigation>
+            <mitigation>Auto-retry with exponential backoff</mitigation>
+        </bottleneck>
+        
+        <bottleneck component="LLMCalls">
+            <issue>Response time latency</issue>
+            <mitigation>Parallel execution where possible</mitigation>
+            <mitigation>Streaming responses (future)</mitigation>
+        </bottleneck>
+        
+        <bottleneck component="LargePRs">
+            <issue>Many files to analyze</issue>
+            <mitigation>GitHub API pagination</mitigation>
+            <mitigation>Selective file analysis</mitigation>
+        </bottleneck>
+        
+        <bottleneck component="JSONParsing">
+            <issue>Malformed LLM output</issue>
+            <mitigation>Regex extraction fallback</mitigation>
+            <mitigation>Empty array default</mitigation>
+        </bottleneck>
+    </performance>
+    
+    <!-- Future Enhancements -->
+    <roadmap>
+        <category name="Performance">
+            <enhancement>Caching repository context</enhancement>
+            <enhancement>Parallel agent execution</enhancement>
+            <enhancement>Streaming LLM responses</enhancement>
+        </category>
+        
+        <category name="Features">
+            <enhancement>Multi-PR comparison</enhancement>
+            <enhancement>Security vulnerability scanning</enhancement>
+            <enhancement>Automated PR comment posting</enhancement>
+            <enhancement>Custom rule engines</enhancement>
+        </category>
+        
+        <category name="Integrations">
+            <enhancement>GitLab support</enhancement>
+            <enhancement>Bitbucket support</enhancement>
+            <enhancement>Slack notifications</enhancement>
+            <enhancement>JIRA linking</enhancement>
+        </category>
+        
+        <category name="Intelligence">
+            <enhancement>Learning from past reviews</enhancement>
+            <enhancement>Project-specific coding conventions</enhancement>
+            <enhancement>Historical trend analysis</enhancement>
+        </category>
+    </roadmap>
+    
+</project>

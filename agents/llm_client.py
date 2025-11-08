@@ -99,7 +99,7 @@ def get_llm_client(convert_system_message_to_human: bool = False) -> LLMClient:
         LLMClient configured from environment.
     """
     api_key = os.getenv("GOOGLE_API_KEY")
-    model = os.getenv("GOOGLE_MODEL_NAME", "gemini-2.5-flash")
+    model = os.getenv("GOOGLE_MODEL_NAME")
     temperature = float(os.getenv("GOOGLE_TEMPERATURE", "0.0"))
     host_url = os.getenv("HOST_URL")
     

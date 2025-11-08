@@ -141,6 +141,104 @@ def fetch_pr_files(
     return files
 
 
+def fetch_repo_context(
+    owner: str, repo: str, token: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Fetch repository context for better code understanding.
+    
+    Args:
+        owner (str): Repository owner
+        repo (str): Repository name
+        token (str, optional): GitHub personal access token
+        
+    Returns:
+        Dict[str, Any]: Repository context including README, languages, structure
+    """
+    headers = {}
+    token = token or os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"token {token}"
+    
+    context = {
+        "readme": None,
+        "languages": {},
+        "description": None,
+        "topics": [],
+        "package_files": {},
+        "project_structure": []
+    }
+    
+    try:
+        # Get repository metadata
+        repo_url = f"{GITHUB_API}/repos/{owner}/{repo}"
+        repo_resp = requests.get(repo_url, headers=headers, timeout=10)
+        if repo_resp.status_code == 200:
+            repo_data = repo_resp.json()
+            context["description"] = repo_data.get("description", "")
+            context["topics"] = repo_data.get("topics", [])
+            context["default_branch"] = repo_data.get("default_branch", "main")
+        
+        # Get README
+        readme_url = f"{GITHUB_API}/repos/{owner}/{repo}/readme"
+        readme_resp = requests.get(readme_url, headers=headers, timeout=10)
+        if readme_resp.status_code == 200:
+            readme_data = readme_resp.json()
+            # Decode base64 content
+            import base64
+            readme_content = base64.b64decode(readme_data.get("content", "")).decode("utf-8")
+            # Truncate if too long (keep first 3000 chars for context)
+            context["readme"] = readme_content[:3000] if len(readme_content) > 3000 else readme_content
+        
+        # Get programming languages
+        lang_url = f"{GITHUB_API}/repos/{owner}/{repo}/languages"
+        lang_resp = requests.get(lang_url, headers=headers, timeout=10)
+        if lang_resp.status_code == 200:
+            context["languages"] = lang_resp.json()
+        
+        # Get key package/config files for tech stack detection
+        key_files = [
+            "package.json", "requirements.txt", "pom.xml", "build.gradle",
+            "Cargo.toml", "go.mod", "composer.json", "Gemfile", "pyproject.toml"
+        ]
+        
+        for filename in key_files:
+            try:
+                file_url = f"{GITHUB_API}/repos/{owner}/{repo}/contents/{filename}"
+                file_resp = requests.get(file_url, headers=headers, timeout=5)
+                if file_resp.status_code == 200:
+                    file_data = file_resp.json()
+                    import base64
+                    content = base64.b64decode(file_data.get("content", "")).decode("utf-8")
+                    # Store first 1000 chars
+                    context["package_files"][filename] = content[:1000]
+            except Exception:
+                continue
+        
+        # Get repository tree (directory structure) - limited depth
+        try:
+            tree_url = f"{GITHUB_API}/repos/{owner}/{repo}/git/trees/{context['default_branch']}?recursive=1"
+            tree_resp = requests.get(tree_url, headers=headers, timeout=10)
+            if tree_resp.status_code == 200:
+                tree_data = tree_resp.json()
+                tree = tree_data.get("tree", [])
+                # Extract main directories and file types
+                dirs = set()
+                for item in tree[:100]:  # Limit to first 100 items
+                    if item.get("type") == "tree":
+                        path = item.get("path", "")
+                        if "/" not in path:  # Top-level directories only
+                            dirs.add(path)
+                context["project_structure"] = sorted(list(dirs))
+        except Exception:
+            pass
+            
+    except Exception as e:
+        print(f"⚠️ Could not fetch full repo context: {e}")
+    
+    return context
+
+
 def parse_pr_files(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Normalize raw PR file data.

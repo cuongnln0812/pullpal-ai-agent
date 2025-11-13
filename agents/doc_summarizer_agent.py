@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
+from agents.prompt_loader import load_prompt
 from agents.compat import HumanMessage
 from agents.state import TestCoverageAgentState
 
@@ -10,6 +11,11 @@ load_dotenv()
 # Initialize LLM client (uses HOST_URL if set, otherwise langchain)
 # --------------------------
 llm = get_llm_client()
+
+# --------------------------
+# Load prompt from file
+# --------------------------
+PROMPT_TEMPLATE = load_prompt("doc_summarizer_prompt.txt")
 
 
 def doc_summarizer_agent(state: TestCoverageAgentState) -> TestCoverageAgentState:
@@ -43,18 +49,13 @@ def doc_summarizer_agent(state: TestCoverageAgentState) -> TestCoverageAgentStat
             gen_tests += len(f.get("generated_tests", []))
 
     # --- Generate summary via LLM ---
-    prompt = f"""
-You are an assistant that summarizes GitHub pull requests.
-
-PR Stats:
-- Files added: {added}
-- Files modified: {modified}
-- Files removed: {removed}
-- New functions/classes: {new_entities}
-- Generated test stubs: {gen_tests}
-
-Write a concise natural language summary in 1-2 sentences.
-"""
+    prompt = PROMPT_TEMPLATE.format(
+        added=added,
+        modified=modified,
+        removed=removed,
+        new_entities=new_entities,
+        gen_tests=gen_tests
+    )
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
         summary = response.content.strip()

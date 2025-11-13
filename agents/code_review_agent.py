@@ -2,6 +2,7 @@ import json
 import os
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
+from agents.prompt_loader import load_prompt
 from agents.compat import HumanMessage
 from agents.state import CodeReviewAgentState
 
@@ -11,6 +12,20 @@ load_dotenv()
 # Initialize LLM client (uses HOST_URL if set, otherwise langchain)
 # --------------------------
 client = get_llm_client(convert_system_message_to_human=True)
+
+# Load system prompt and extended rules from files
+SYSTEM_PROMPT_CONTENT = ""
+EXTENDED_RULES_CONTENT = ""
+try:
+    with open("system_prompt.md", "r", encoding="utf-8") as f:
+        SYSTEM_PROMPT_CONTENT = f.read()
+    with open("extended_rules.md", "r", encoding="utf-8") as f:
+        EXTENDED_RULES_CONTENT = f.read()
+except FileNotFoundError as e:
+    print(f"Error loading prompt/rules file: {e}. Make sure 'system_prompt.md' and 'extended_rules.md' are in the root directory.")
+    # Fallback or exit if essential files are missing
+    SYSTEM_PROMPT_CONTENT = "You are an expert code reviewer."
+    EXTENDED_RULES_CONTENT = "Follow general coding best practices."
 
 # --------------------------
 # Language detection and best practices
@@ -280,42 +295,55 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
             # Get language-specific best practices
             best_practices = LANGUAGE_BEST_PRACTICES.get(language, [])
             best_practices_text = "\n".join(f"- {bp}" for bp in best_practices) if best_practices else "Follow general coding standards"
-            
-            prompt = f"""
-You are a senior {language} code reviewer.
-ONLY return valid JSON (no explanations, no markdown, no code blocks).
 
-Analyze this GitHub PR diff for a {language} file:
-- Style issues specific to {language}
-- Bugs and logic errors
-- Security vulnerabilities
-- Performance problems
-- Violations of {language} best practices
+            custom_guidelines_section = ""
+            if state.custom_guidelines:
+                custom_guidelines_section = f"Additionally, adhere to these custom project guidelines:\n{state.custom_guidelines}"
 
-{language} Best Practices to check:
+            full_prompt_content = f"""{SYSTEM_PROMPT_CONTENT}
+
+# Extended Rules and Best Practices:
+{EXTENDED_RULES_CONTENT}
+
+# Language-Specific Best Practices for {language}:
 {best_practices_text}
 
-For each issue found, include:
-1. The specific line number or range where the issue occurs (look for line numbers in the diff)
-2. A snippet of the problematic code (extract from the diff)
+{custom_guidelines_section}
 
-Return ONLY a JSON array of objects (empty array [] if no issues found):
-[
-  {{
-    "type": "style|bug|security|performance",
-    "message": "Brief description of the issue",
-    "suggestion": "How to fix it",
-    "line_start": number,
-    "line_end": number,
-    "code_snippet": "the problematic code"
-  }}
-]
+Review the provided code patch for the file `{filename}`.
+Provide your feedback in a structured JSON array format, where each object represents an issue found. If no issues are found, return an empty JSON array `[]`.
 
-Diff for {filename}:
+Each issue object should have the following keys:
+- `filename`: (string) The name of the file where the issue was found.
+- `line_start`: (integer) The starting line number of the issue.
+- `line_end`: (integer) The ending line number of the issue.
+- `type`: (string) Category of the issue (e.g., "bug", "style", "security", "performance", "maintainability").
+- `message`: (string) A concise description of the issue.
+- `suggestion`: (string) A clear suggestion for how to fix or improve the code.
+- `code_snippet`: (string) The relevant code snippet where the issue is located.
+
+Example of a single issue:
+```json
+{{
+    "filename": "src/main.py",
+    "line_start": 10,
+    "line_end": 12,
+    "type": "style",
+    "message": "Variable name 'x' is not descriptive.",
+    "suggestion": "Rename 'x' to 'user_count' for better readability.",
+    "code_snippet": "x = get_user_count()"
+}}
+```
+
+Here is the code patch to review:
+
+```diff
 {patch}
+```
 """
+
             try:
-                response = client.invoke([HumanMessage(content=prompt)])
+                response = client.invoke([HumanMessage(content=full_prompt_content)])
                 llm_output = response.content
                 llm_issues = safe_parse_json(llm_output, filename)
                 if isinstance(llm_issues, list):

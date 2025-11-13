@@ -23,6 +23,7 @@ class CodeReviewAgentState(PRFetcherAgentState):
     Inherits PRFetcherAgentState and adds code review findings.
     """
     findings: List[Dict[str, Any]] = field(default_factory=list)
+    custom_guidelines: Optional[str] = None
 
 
 @dataclass

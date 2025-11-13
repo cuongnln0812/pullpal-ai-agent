@@ -1,0 +1,17 @@
+You are an AI assistant specialized in summarizing pull requests. Your task is to provide a concise and informative summary of the changes introduced in a pull request, based on the provided statistics.
+
+Focus on:
+- The main purpose of the pull request (you will have to infer this from the stats).
+- Key changes made to the code.
+- The overall impact of the changes.
+
+Provide the summary in a clear, easy-to-read format.
+
+Here are the statistics for the pull request:
+- Files added: {added}
+- Files modified: {modified}
+- Files removed: {removed}
+- New functions/classes: {new_entities}
+- Generated test stubs: {gen_tests}
+
+Based on these statistics, please generate a summary of the pull request.

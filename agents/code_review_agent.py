@@ -1,11 +1,95 @@
 import json
 import os
+from pathlib import Path
+from typing import Any, Dict, List
+
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
 from agents.compat import HumanMessage
 from agents.state import CodeReviewAgentState
 
 load_dotenv()
+
+# --------------------------
+# Paths & configuration loading
+# --------------------------
+BASE_DIR = Path(__file__).resolve().parent.parent
+CONFIG_DIR = BASE_DIR / "config"
+SYSTEM_PROMPT_PATH = CONFIG_DIR / "review_system_prompt.md"
+GLOBAL_RULES_PATH = CONFIG_DIR / "global_review_rules.json"
+
+
+def _load_system_prompt_template() -> str:
+    """Load the base system prompt template from file."""
+    try:
+        with SYSTEM_PROMPT_PATH.open("r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        # Minimal fallback so the agent still works if the file is missing
+        return (
+            "You are a senior {language} code reviewer.\n"
+            "Global rules:\n{global_rules}\n\n"
+            "Language best practices:\n{best_practices}\n\n"
+            "Project guidelines:\n{project_guidelines}\n"
+        )
+
+
+def _load_global_rules() -> List[Dict[str, Any]]:
+    """Load global review rules from JSON file."""
+    try:
+        with GLOBAL_RULES_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except FileNotFoundError:
+        pass
+    except json.JSONDecodeError:
+        print("⚠️ Failed to parse global_review_rules.json, falling back to empty rules.")
+    return []
+
+
+SYSTEM_PROMPT_TEMPLATE = _load_system_prompt_template()
+GLOBAL_RULES = _load_global_rules()
+
+
+def _format_rules_for_prompt(rules: List[Dict[str, Any]]) -> str:
+    """Format rules into a human-readable bullet list for the prompt."""
+    if not rules:
+        return "- (no global rules configured)"
+
+    lines: List[str] = []
+    for rule in rules:
+        rule_id = rule.get("id", "R?")
+        title = rule.get("title", "").strip()
+        severity = rule.get("severity", "").lower()
+        scope = rule.get("scope", "*")
+        description = rule.get("description", "").strip()
+        fix = rule.get("fix", "").strip()
+
+        lines.append(
+            f"- [{rule_id}] ({severity}, scope: {scope}) {title}\n"
+            f"  - Description: {description}\n"
+            f"  - Fix: {fix}"
+        )
+    return "\n".join(lines)
+
+
+def _build_system_prompt(
+    language: str,
+    best_practices_text: str,
+    guideline_text: str | None,
+) -> str:
+    """Render the final system prompt text for the given language and guidelines."""
+    global_rules_text = _format_rules_for_prompt(GLOBAL_RULES)
+    guidelines_section = guideline_text.strip() if guideline_text else "(no project-specific guidelines provided)"
+
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        language=language,
+        global_rules=global_rules_text,
+        best_practices=best_practices_text,
+        project_guidelines=guidelines_section,
+    )
+
 
 # --------------------------
 # Initialize LLM client (uses HOST_URL if set, otherwise langchain)
@@ -280,36 +364,19 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
             # Get language-specific best practices
             best_practices = LANGUAGE_BEST_PRACTICES.get(language, [])
             best_practices_text = "\n".join(f"- {bp}" for bp in best_practices) if best_practices else "Follow general coding standards"
-            
-            prompt = f"""
-You are a senior {language} code reviewer.
-ONLY return valid JSON (no explanations, no markdown, no code blocks).
 
-Analyze this GitHub PR diff for a {language} file:
-- Style issues specific to {language}
-- Bugs and logic errors
-- Security vulnerabilities
-- Performance problems
-- Violations of {language} best practices
+            # Build system prompt from template + rules + guidelines
+            guideline_text = getattr(state, "guideline_text", None)
+            system_prompt = _build_system_prompt(
+                language=language,
+                best_practices_text=best_practices_text,
+                guideline_text=guideline_text,
+            )
 
-{language} Best Practices to check:
-{best_practices_text}
+            prompt = f"""{system_prompt}
 
-For each issue found, include:
-1. The specific line number or range where the issue occurs (look for line numbers in the diff)
-2. A snippet of the problematic code (extract from the diff)
-
-Return ONLY a JSON array of objects (empty array [] if no issues found):
-[
-  {{
-    "type": "style|bug|security|performance",
-    "message": "Brief description of the issue",
-    "suggestion": "How to fix it",
-    "line_start": number,
-    "line_end": number,
-    "code_snippet": "the problematic code"
-  }}
-]
+Analyze the following GitHub PR diff for a {language} file and produce the JSON array of issues as specified above.
+If there are no issues, return [].
 
 Diff for {filename}:
 {patch}

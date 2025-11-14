@@ -24,7 +24,15 @@ token = st.text_input(
 )
 
 # --------------------------
-# Step 1c: Start Review Button
+# Step 1c: Optional project guideline file
+# --------------------------
+guideline_file = st.file_uploader(
+    "Upload project coding guideline / rules (optional, .md, .txt, .json)",
+    type=["md", "txt", "json"]
+)
+
+# --------------------------
+# Step 1d: Start Review Button
 # --------------------------
 if st.button("🚀 Start PR Review") and pr_url:
     try:
@@ -32,6 +40,15 @@ if st.button("🚀 Start PR Review") and pr_url:
         pr_info = parse_github_pr_url(pr_url)
         state = TestCoverageAgentState(pr_url=pr_url)
         state.github_token = token if token else None
+
+        # Read guideline file content (if provided)
+        if guideline_file is not None:
+            guideline_bytes = guideline_file.getvalue()
+            try:
+                state.guideline_text = guideline_bytes.decode("utf-8", errors="ignore")
+            except Exception:
+                # Fallback: best-effort decoding
+                state.guideline_text = guideline_bytes.decode(errors="ignore")
 
         with st.spinner("Fetching PR and analyzing... This may take a few seconds"):
             result = workflow.invoke(state)

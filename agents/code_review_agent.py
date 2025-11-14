@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
+from agents.prompt_loader import load_prompt
 from agents.compat import HumanMessage
 from agents.state import CodeReviewAgentState
 
@@ -95,6 +96,20 @@ def _build_system_prompt(
 # Initialize LLM client (uses HOST_URL if set, otherwise langchain)
 # --------------------------
 client = get_llm_client(convert_system_message_to_human=True)
+
+# Load system prompt and extended rules from files
+SYSTEM_PROMPT_CONTENT = ""
+EXTENDED_RULES_CONTENT = ""
+try:
+    with open("system_prompt.md", "r", encoding="utf-8") as f:
+        SYSTEM_PROMPT_CONTENT = f.read()
+    with open("extended_rules.md", "r", encoding="utf-8") as f:
+        EXTENDED_RULES_CONTENT = f.read()
+except FileNotFoundError as e:
+    print(f"Error loading prompt/rules file: {e}. Make sure 'system_prompt.md' and 'extended_rules.md' are in the root directory.")
+    # Fallback or exit if essential files are missing
+    SYSTEM_PROMPT_CONTENT = "You are an expert code reviewer."
+    EXTENDED_RULES_CONTENT = "Follow general coding best practices."
 
 # --------------------------
 # Language detection and best practices
@@ -380,9 +395,11 @@ If there are no issues, return [].
 
 Diff for {filename}:
 {patch}
+```
 """
+
             try:
-                response = client.invoke([HumanMessage(content=prompt)])
+                response = client.invoke([HumanMessage(content=full_prompt_content)])
                 llm_output = response.content
                 llm_issues = safe_parse_json(llm_output, filename)
                 if isinstance(llm_issues, list):

@@ -1,3 +1,4 @@
+import os
 from langgraph.graph import StateGraph, END
 
 from agents.doc_summarizer_agent import doc_summarizer_agent
@@ -35,8 +36,23 @@ if __name__ == "__main__":
     # Initialize state with PR URL
     mermaid_code = workflow.get_graph().draw_mermaid()
     print(mermaid_code)
+
+    # --- Load custom guidelines if provided ---
+    custom_guidelines_content = None
+    guideline_file_path = "user_guidelines.md"  # Example: User provides this path
+    if os.path.exists(guideline_file_path):
+        try:
+            with open(guideline_file_path, "r", encoding="utf-8") as f:
+                custom_guidelines_content = f.read()
+            print(f"Loaded custom guidelines from {guideline_file_path}")
+        except Exception as e:
+            print(f"Error loading custom guidelines from {guideline_file_path}: {e}")
+    else:
+        print(f"No custom guidelines file found at {guideline_file_path}. Skipping.")
+
     state = PRSummaryAgentState(
-        pr_url="https://github.com/dharampatel/medical-knowledge-assistant/pull/1"
+        pr_url="https://github.com/dharampatel/medical-knowledge-assistant/pull/1",
+        custom_guidelines=custom_guidelines_content
     )
 
     # Invoke workflow

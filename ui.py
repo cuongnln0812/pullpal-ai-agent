@@ -1,7 +1,7 @@
 import streamlit as st
 from github_fetcher import parse_github_pr_url
 from agent_orchestration import workflow
-from agents.state import TestCoverageAgentState
+from agents.state import PRSummaryAgentState
 
 st.set_page_config(page_title="🛠 PR Review Agent", layout="wide")
 st.title("🛠 PR Review Agent")
@@ -38,7 +38,8 @@ if st.button("🚀 Start PR Review") and pr_url:
     try:
         # Parse PR URL & initialize state
         pr_info = parse_github_pr_url(pr_url)
-        state = TestCoverageAgentState(pr_url=pr_url)
+        custom_guidelines = guideline_file.read().decode("utf-8") if guideline_file else None
+        state = PRSummaryAgentState(pr_url=pr_url, custom_guidelines=custom_guidelines)
         state.github_token = token if token else None
 
         # Read guideline file content (if provided)

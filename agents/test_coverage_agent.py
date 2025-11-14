@@ -2,6 +2,7 @@ import re
 import os
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
+from agents.prompt_loader import load_prompt
 from agents.compat import HumanMessage
 from agents.state import TestCoverageAgentState, CodeReviewAgentState
 
@@ -11,6 +12,11 @@ load_dotenv()
 # Initialize LLM client (uses HOST_URL if set, otherwise langchain)
 # --------------------------
 llm = get_llm_client(convert_system_message_to_human=True)
+
+# --------------------------
+# Load prompt from file
+# --------------------------
+PROMPT_TEMPLATE = load_prompt("test_coverage_prompt.txt")
 
 # --------------------------
 # Language and testing framework mapping
@@ -227,27 +233,13 @@ def test_coverage_agent(state: TestCoverageAgentState) -> TestCoverageAgentState
             }
 
             # --- Generate test stubs with LLM ---
-            prompt = f"""
-You are a senior {language} developer.
-Generate {framework} unit test stubs for the following functions/classes detected in the PR.
+            prompt = PROMPT_TEMPLATE.format(
+                language=language,
+                framework=framework,
+                filename=filename,
+                added_entities='\n'.join(added_entities)
+            )
 
-Language: {language}
-Testing Framework: {framework}
-Source file: {filename}
-
-Added code:
-{chr(10).join(added_entities)}
-
-Requirements:
-- Generate ONLY valid {language} code for {framework}
-- Include necessary imports
-- Create test cases for each function/class
-- Follow {framework} best practices and conventions
-- Use appropriate assertions
-- No explanations, just code
-
-Output the complete test file code:
-"""
             try:
                 response = llm.invoke([HumanMessage(content=prompt)])
                 issue["generated_tests"].append({

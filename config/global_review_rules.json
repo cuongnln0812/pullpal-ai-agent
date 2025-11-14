@@ -1,0 +1,60 @@
+[
+  {
+    "id": "R1",
+    "title": "Avoid commented-out dead code in pull requests",
+    "severity": "warning",
+    "scope": "*",
+    "description": "Commented-out blocks of code make the codebase harder to read and maintain.",
+    "fix": "Remove commented-out code or move it to version control history or documentation."
+  },
+  {
+    "id": "R2",
+    "title": "No debug logging or print statements in committed code",
+    "severity": "warning",
+    "scope": "*",
+    "description": "Temporary debug logging (e.g., print, console.log) should not ship to production.",
+    "fix": "Remove debug statements or replace them with proper logging at an appropriate log level."
+  },
+  {
+    "id": "R3",
+    "title": "Avoid wide-ranging try/except or catch-all error handling",
+    "severity": "warning",
+    "scope": "*",
+    "description": "Catching broad exceptions (e.g., bare `except`, `Exception`) can hide real bugs and make debugging difficult.",
+    "fix": "Catch specific exception types and handle them explicitly; let unexpected errors surface."
+  },
+  {
+    "id": "R4",
+    "title": "Detect and avoid duplicated logic or copy-paste blocks",
+    "severity": "info",
+    "scope": "*",
+    "description": "Duplicated logic increases maintenance cost and the risk of inconsistent fixes.",
+    "fix": "Recommend extracting common logic into a shared function, method, or module."
+  },
+  {
+    "id": "R5",
+    "title": "Respect function and file size for readability",
+    "severity": "warning",
+    "scope": "*",
+    "description": "Very large functions or files are harder to understand and maintain.",
+    "fix": "Suggest splitting large functions/files into smaller, focused units with clear responsibilities."
+  },
+  {
+    "id": "R6",
+    "title": "LLM providers must not create clients directly",
+    "severity": "error",
+    "scope": "internal/providers/llm/**",
+    "description": "LLM providers should not construct their own HTTP or API clients (e.g., openai.New..., http.Client{}). They must receive them via dependency injection.",
+    "fix": "Request the client from the dependency injection system instead of creating it directly."
+  },
+  {
+    "id": "R7",
+    "title": "No runtime type assertions on concrete providers",
+    "severity": "warning",
+    "scope": "*",
+    "description": "Avoid runtime type assertions on concrete provider types. Use stable interfaces instead.",
+    "fix": "Refactor to use interfaces or abstractions to access provider components and their methods."
+  }
+]
+
+

@@ -111,6 +111,31 @@ The app will automatically open in your default browser at `http://localhost:850
 - For **public repositories**, the token is optional but recommended to avoid rate limits
 - The token is used only for this session and is not stored
 
+### Step 2b: (Optional) Upload Project Coding Guidelines
+
+You can provide **project-specific coding rules** for the reviewer:
+
+- In the UI, use the **"Upload project coding guideline / rules (optional, .md, .txt, .json)"** uploader.
+- Supported formats: `.md`, `.txt`, `.json`.
+- This content is passed to the LLM together with the global rules and language best practices, so findings will be aligned with your team’s conventions.
+
+Example guideline content (JSON):
+
+```json
+[
+  {
+    "id": "R6",
+    "title": "LLM providers must not create clients directly",
+    "severity": "error",
+    "scope": "internal/providers/llm/**",
+    "description": "LLM providers should not construct their own HTTP or API clients.",
+    "fix": "Request the client from the dependency injection system instead of creating it directly."
+  }
+]
+```
+
+Or you can upload a Markdown/text file describing anti‑patterns, Sonar rules, and team conventions in free-form prose.
+
 ### Step 3: Start Review
 
 Click the **"🚀 Start PR Review"** button and wait while the agent:
@@ -125,18 +150,21 @@ Click the **"🚀 Start PR Review"** button and wait while the agent:
 The UI displays three main sections:
 
 #### 📄 PR Overview
+
 - Repository owner and name
 - PR number
 - Total files changed
 
 #### 📝 Code Review Findings
+
 - **Visual badges**: 🐛 Bugs, 🔒 Security, ⚡ Performance, 💅 Style
 - **Line numbers**: Exact location of each issue (e.g., "📍 Lines 42-48")
 - **Code snippets**: Syntax-highlighted code showing the problem
 - **Suggestions**: Actionable recommendations to fix each issue
 
 Example:
-```
+
+```text
 🐛 Issue #1: BUG
 📍 Lines 45-48
 
@@ -151,11 +179,13 @@ Issue: Calling .get() without checking if Optional is present
 ```
 
 #### 🧪 Test Coverage Findings
+
 - Detects missing tests for new functions/classes
 - Generates language-appropriate test stubs
 - Shows test file location and framework (e.g., JUnit 5, pytest, Jest)
 
 #### 🖊 PR Summary
+
 - AI-generated natural language summary
 - Highlights key changes, additions, and modifications
 
@@ -181,23 +211,53 @@ Control automatic waiting for GitHub rate limits:
 GITHUB_MAX_AUTO_WAIT=300  # Max seconds to auto-wait (default: 300)
 ```
 
+### Custom Review Rules & System Prompt
+
+The reviewer’s system prompt and global rules are **externalized into config files** so you can customize them without changing Python code:
+
+- `config/review_system_prompt.md`  
+  - Base **system prompt template** for the code review agent.  
+  - Placeholders:
+    - `{language}` – detected from the file extension (Python, Java, etc.).
+    - `{global_rules}` – rendered from the global rules JSON below.
+    - `{best_practices}` – built-in language-specific best practices.
+    - `{project_guidelines}` – content from the guideline file you upload in the UI.
+  - Edit this file to change tone, constraints, or the structure of the expected JSON output.
+
+- `config/global_review_rules.json`  
+  - Shared **global ruleset** applied to every PR (e.g. anti‑patterns, Sonar rules, architecture constraints).  
+  - Each rule object has:
+    - `id`, `title`, `severity`, `scope`, `description`, `fix`.
+  - Add, remove, or tweak rules here; they will automatically be injected into the reviewer’s system prompt.
+
+At runtime, the code review agent evaluates each file using:
+
+1. Global rules from `config/global_review_rules.json`  
+2. Language best practices (built-in)  
+3. The per-PR guideline file you upload in the UI  
+4. The system prompt template in `config/review_system_prompt.md`
+
 ## Troubleshooting 🔧
 
 ### "GitHub API rate limit exceeded"
+
 - **Solution**: Add a `GITHUB_TOKEN` to your `.env` file
 - Without token: 60 requests/hour
 - With token: 5,000 requests/hour
 
 ### "API key not valid"
+
 - **Check**: Ensure `GOOGLE_API_KEY` in `.env` is correct
 - For custom endpoints: Verify `HOST_URL` is reachable
 - For Google AI: Get a valid key from [ai.google.dev](https://ai.google.dev/)
 
 ### "Cannot import module"
+
 - **Solution**: Ensure virtual environment is activated
 - Run: `pip install -r requirements.txt` again
 
 ### Import errors or dependency issues
+
 ```powershell
 # Reinstall dependencies
 .\.venv\Scripts\Activate.ps1
@@ -206,22 +266,25 @@ pip install --upgrade -r requirements.txt
 
 ## Project Structure 📁
 
-```
+```text
 pullpal-ai-agent/
 ├── agents/
 │   ├── code_review_agent.py      # Multi-language code review
 │   ├── test_coverage_agent.py    # Test detection & generation
 │   ├── doc_summarizer_agent.py   # PR summarization
 │   ├── pr_fetcher_agent.py       # GitHub API integration
-│   ├── llm_client.py              # LLM adapter (OpenAI/Gemini)
-│   ├── compat.py                  # Compatibility shim
-│   └── state.py                   # Agent state dataclasses
-├── ui.py                          # Streamlit UI
-├── agent_orchestration.py         # Workflow orchestration
-├── github_fetcher.py              # GitHub API utilities
-├── requirements.txt               # Python dependencies
-├── .env                           # Environment variables (create this)
-└── README.md                      # This file
+│   ├── llm_client.py             # LLM adapter (OpenAI/Gemini)
+│   ├── compat.py                 # Compatibility shim
+│   └── state.py                  # Agent state dataclasses
+├── config/
+│   ├── review_system_prompt.md   # System prompt template for reviewer
+│   └── global_review_rules.json  # Global review rules (anti-patterns, Sonar-style rules, etc.)
+├── ui.py                         # Streamlit UI
+├── agent_orchestration.py        # Workflow orchestration
+├── github_fetcher.py             # GitHub API utilities
+├── requirements.txt              # Python dependencies
+├── .env                          # Environment variables (create this)
+└── README.md                     # This file
 ```
 
 ## Contributing 🤝
@@ -235,11 +298,11 @@ This project is open source and available under the MIT License.
 ## Support 💬
 
 If you encounter any issues or have questions:
+
 1. Check the Troubleshooting section above
 2. Review the `.env` configuration
 3. Open an issue on GitHub
 
 ---
 
-**Made with ❤️ for better code reviews**
-```
+Made with ❤️ for better code reviews

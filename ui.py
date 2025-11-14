@@ -24,11 +24,11 @@ token = st.text_input(
 )
 
 # --------------------------
-# Step 1c: Custom coding conventions (optional)
+# Step 1c: Optional project guideline file
 # --------------------------
 guideline_file = st.file_uploader(
-    "Upload Coding Convention/Rules File (Optional)",
-    type=['txt', 'md']
+    "Upload project coding guideline / rules (optional, .md, .txt, .json)",
+    type=["md", "txt", "json"]
 )
 
 # --------------------------
@@ -41,6 +41,15 @@ if st.button("🚀 Start PR Review") and pr_url:
         custom_guidelines = guideline_file.read().decode("utf-8") if guideline_file else None
         state = PRSummaryAgentState(pr_url=pr_url, custom_guidelines=custom_guidelines)
         state.github_token = token if token else None
+
+        # Read guideline file content (if provided)
+        if guideline_file is not None:
+            guideline_bytes = guideline_file.getvalue()
+            try:
+                state.guideline_text = guideline_bytes.decode("utf-8", errors="ignore")
+            except Exception:
+                # Fallback: best-effort decoding
+                state.guideline_text = guideline_bytes.decode(errors="ignore")
 
         with st.spinner("Fetching PR and analyzing... This may take a few seconds"):
             result = workflow.invoke(state)

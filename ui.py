@@ -100,20 +100,21 @@ if st.button("🚀 Start PR Review") and pr_url:
                             'PERFORMANCE': '⚡',
                             'STYLE': '💅'
                         }.get(issue_type, '📌')
-                        
-                        st.markdown(f"### {type_color} Issue #{idx}: {issue_type}")
-                        
+                        source_label = {
+                            'global': '🌐 Global Rule',
+                            'user': '👤 User Rule',
+                            'rag': '📚 RAG Rule'
+                        }.get(issue.get('source', 'global'), '🌐 Global Rule')
+                        st.markdown(f"### {type_color} Issue #{idx}: {issue_type} [{source_label}]")
                         # Display line numbers if available
                         if 'line_start' in issue and issue.get('line_start'):
                             if issue.get('line_end') and issue['line_end'] != issue['line_start']:
                                 st.caption(f"📍 Lines {issue['line_start']}-{issue['line_end']}")
                             else:
                                 st.caption(f"📍 Line {issue['line_start']}")
-                        
                         # Display code snippet if available
                         if 'code_snippet' in issue and issue.get('code_snippet'):
                             st.markdown("**Code:**")
-                            # Detect language from filename
                             import os
                             _, ext = os.path.splitext(f['filename'])
                             lang_map = {
@@ -124,14 +125,18 @@ if st.button("🚀 Start PR Review") and pr_url:
                             }
                             language = lang_map.get(ext.lower(), 'text')
                             st.code(issue['code_snippet'], language=language)
-                        
-                        # Issue description
                         st.markdown(f"**Issue:** {issue['message']}")
-                        
-                        # Suggestion in a highlighted box
                         st.info(f"💡 **Suggestion:** {issue['suggestion']}")
-                        
-                        # Add divider between issues
+                        # Show detailed rule info if available
+                        if issue.get('rule_id') or issue.get('rule_title'):
+                            st.markdown("---")
+                            st.markdown(f"**Rule ID:** {issue.get('rule_id', 'N/A')}")
+                            st.markdown(f"**Rule Title:** {issue.get('rule_title', 'N/A')}")
+                            st.markdown(f"**Rule Description:** {issue.get('rule_description', 'N/A')}")
+                            st.markdown(f"**Rule Fix:** {issue.get('rule_fix', 'N/A')}")
+                        # Add a clear button for each issue (for demonstration, does not persist)
+                        if st.button(f"Clear Issue #{idx} [{source_label}]", key=f"clear_{f['filename']}_{idx}"):
+                            st.success(f"Issue #{idx} cleared!")
                         if idx < len(f['issues']):
                             st.divider()
         else:

@@ -53,26 +53,24 @@ def main():
     # Initialize vector store
     vector_store = get_vector_store()
     
-    # Get paths
-    base_dir = Path(__file__).parent.parent
-    global_rules_path = base_dir / "prompts" / "global_review_rules.json"
-    extended_rules_path = base_dir / "extended_rules.md"
-    
-    # Load and store global rules
-    print("\n📋 Loading Global Review Rules...")
-    global_rules = load_global_rules(global_rules_path)
-    if global_rules:
-        vector_store.store_review_rules(global_rules, source="global")
-    
-    # Load and store extended rules as guideline
-    print("\n📖 Loading Extended Rules...")
-    extended_rules = load_extended_rules(extended_rules_path)
-    if extended_rules:
-        vector_store.store_project_guidelines(
-            content=extended_rules,
-            filename="extended_rules.md",
-            project_name="system"
-        )
+    # Get knowledge_base directory
+    kb_dir = Path(__file__).parent.parent / "knowledge_base"
+    print(f"\n🔍 Scanning {kb_dir} for rule files...")
+    for rule_file in kb_dir.glob("*"):
+        if rule_file.suffix == ".json":
+            print(f"\n📋 Loading rules from {rule_file.name}...")
+            rules = load_global_rules(rule_file)
+            if rules:
+                vector_store.store_review_rules(rules, source=rule_file.name)
+        elif rule_file.suffix == ".md":
+            print(f"\n📖 Loading guidelines from {rule_file.name}...")
+            content = load_extended_rules(rule_file)
+            if content:
+                vector_store.store_project_guidelines(
+                    content=content,
+                    filename=rule_file.name,
+                    project_name="system"
+                )
     
     # Show statistics
     print("\n" + "="*60)

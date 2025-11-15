@@ -335,14 +335,33 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
         # --- Static checks ---
         for keyword, issue in STATIC_ISSUES.items():
             if keyword in patch:
-                file_findings.append(issue)
+                # Attach rule details if available from global rules
+                rule_detail = None
+                for gr in GLOBAL_RULES:
+                    if keyword.lower() in gr.get("title", "").lower() or keyword.lower() in gr.get("description", "").lower():
+                        rule_detail = gr
+                        break
+                enriched_issue = {**issue, "source": "global"}
+                if rule_detail:
+                    enriched_issue.update({
+                        "rule_id": rule_detail.get("id"),
+                        "rule_title": rule_detail.get("title"),
+                        "rule_description": rule_detail.get("description"),
+                        "rule_fix": rule_detail.get("fix")
+                    })
+                file_findings.append(enriched_issue)
 
         # Detect large files/functions
         if len(patch.splitlines()) > 200:
             file_findings.append({
                 "type": "performance",
                 "message": "Large file/function detected (>200 lines).",
-                "suggestion": "Split into smaller, modular functions."
+                "suggestion": "Split into smaller, modular functions.",
+                "source": "global",
+                "rule_id": "PERF-001",
+                "rule_title": "Large file/function",
+                "rule_description": "Files or functions should not exceed 200 lines for maintainability.",
+                "rule_fix": "Refactor into smaller, modular functions."
             })
 
         # --- LLM-based review for supported languages ---
@@ -399,15 +418,12 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
                     # Enhance issues with code context if not already provided
                     code_blocks = extract_code_context(patch)
                     sections = group_code_by_context(code_blocks)
-                    
                     for issue in llm_issues:
                         # Ensure filename is set
                         if "filename" not in issue:
                             issue["filename"] = filename
-                        
                         # If LLM didn't provide code context, add it
                         if "code_snippet" not in issue or not issue["code_snippet"]:
-                            # Use the first code section as context
                             if sections:
                                 first_section = sections[0]
                                 issue["line_start"] = first_section["start_line"]
@@ -415,13 +431,20 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
                                 issue["code_snippet"] = "\n".join(
                                     f"{line['code']}" for line in first_section["lines"]
                                 )
-                        
                         # Ensure line numbers are present
                         if "line_start" not in issue and sections:
                             issue["line_start"] = sections[0]["start_line"]
                         if "line_end" not in issue and sections:
                             issue["line_end"] = sections[0]["end_line"]
-                    
+                        # Tag issue source
+                        if custom_guidelines:
+                            issue["source"] = "user"
+                        elif rag_context:
+                            issue["source"] = "rag"
+                        else:
+                            issue["source"] = "global"
+                        # Attach rule details if present in LLM output
+                        # (Assume LLM output includes rule_id, title, description, fix if available)
                     file_findings.extend(llm_issues)
             except Exception as e:
                 print(f"❌ LLM review failed for {filename}: {e}")

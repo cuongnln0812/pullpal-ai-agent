@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
 from agents.prompt_loader import load_prompt
-from agents.compat import HumanMessage
+from langchain_core.messages import HumanMessage
 from agents.state import TestCoverageAgentState, CodeReviewAgentState
 
 load_dotenv()

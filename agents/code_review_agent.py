@@ -2,12 +2,19 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List
-
 from dotenv import load_dotenv
 from agents.llm_client import get_llm_client
 from agents.prompt_loader import load_prompt
-from agents.compat import HumanMessage
+from langchain_core.messages import HumanMessage
 from agents.state import CodeReviewAgentState
+
+# RAG imports
+try:
+    from agents.rag_retriever import get_rag_retriever
+    RAG_ENABLED = True
+except ImportError:
+    RAG_ENABLED = False
+    print("⚠️ RAG dependencies not installed. Install: pip install chromadb sentence-transformers")
 
 load_dotenv()
 
@@ -15,24 +22,9 @@ load_dotenv()
 # Paths & configuration loading
 # --------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_DIR = BASE_DIR / "config"
-SYSTEM_PROMPT_PATH = CONFIG_DIR / "review_system_prompt.md"
-GLOBAL_RULES_PATH = CONFIG_DIR / "global_review_rules.json"
-
-
-def _load_system_prompt_template() -> str:
-    """Load the base system prompt template from file."""
-    try:
-        with SYSTEM_PROMPT_PATH.open("r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        # Minimal fallback so the agent still works if the file is missing
-        return (
-            "You are a senior {language} code reviewer.\n"
-            "Global rules:\n{global_rules}\n\n"
-            "Language best practices:\n{best_practices}\n\n"
-            "Project guidelines:\n{project_guidelines}\n"
-        )
+PROMPTS_DIR = BASE_DIR / "prompts"
+GLOBAL_RULES_PATH = PROMPTS_DIR / "global_review_rules.json"
+EXTENDED_RULES_PATH = BASE_DIR / "extended_rules.md"
 
 
 def _load_global_rules() -> List[Dict[str, Any]]:
@@ -49,47 +41,37 @@ def _load_global_rules() -> List[Dict[str, Any]]:
     return []
 
 
-SYSTEM_PROMPT_TEMPLATE = _load_system_prompt_template()
+def _load_extended_rules() -> str:
+    """Load extended coding rules and best practices from markdown file."""
+    try:
+        with EXTENDED_RULES_PATH.open("r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
 GLOBAL_RULES = _load_global_rules()
+EXTENDED_RULES = _load_extended_rules()
 
 
-def _format_rules_for_prompt(rules: List[Dict[str, Any]]) -> str:
-    """Format rules into a human-readable bullet list for the prompt."""
+def _format_global_rules_for_prompt(rules: List[Dict[str, Any]]) -> str:
+    """Format global rules into a human-readable text for the prompt."""
     if not rules:
-        return "- (no global rules configured)"
+        return "No specific global rules configured."
 
-    lines: List[str] = []
+    lines: List[str] = ["\n**Global Review Rules:**\n"]
     for rule in rules:
         rule_id = rule.get("id", "R?")
         title = rule.get("title", "").strip()
-        severity = rule.get("severity", "").lower()
-        scope = rule.get("scope", "*")
+        severity = rule.get("severity", "").upper()
         description = rule.get("description", "").strip()
         fix = rule.get("fix", "").strip()
 
-        lines.append(
-            f"- [{rule_id}] ({severity}, scope: {scope}) {title}\n"
-            f"  - Description: {description}\n"
-            f"  - Fix: {fix}"
-        )
+        lines.append(f"- **[{rule_id}]** ({severity}) {title}")
+        lines.append(f"  - {description}")
+        lines.append(f"  - Fix: {fix}")
+        lines.append("")
     return "\n".join(lines)
-
-
-def _build_system_prompt(
-    language: str,
-    best_practices_text: str,
-    guideline_text: str | None,
-) -> str:
-    """Render the final system prompt text for the given language and guidelines."""
-    global_rules_text = _format_rules_for_prompt(GLOBAL_RULES)
-    guidelines_section = guideline_text.strip() if guideline_text else "(no project-specific guidelines provided)"
-
-    return SYSTEM_PROMPT_TEMPLATE.format(
-        language=language,
-        global_rules=global_rules_text,
-        best_practices=best_practices_text,
-        project_guidelines=guidelines_section,
-    )
 
 
 # --------------------------
@@ -97,19 +79,8 @@ def _build_system_prompt(
 # --------------------------
 client = get_llm_client(convert_system_message_to_human=True)
 
-# Load system prompt and extended rules from files
-SYSTEM_PROMPT_CONTENT = ""
-EXTENDED_RULES_CONTENT = ""
-try:
-    with open("system_prompt.md", "r", encoding="utf-8") as f:
-        SYSTEM_PROMPT_CONTENT = f.read()
-    with open("extended_rules.md", "r", encoding="utf-8") as f:
-        EXTENDED_RULES_CONTENT = f.read()
-except FileNotFoundError as e:
-    print(f"Error loading prompt/rules file: {e}. Make sure 'system_prompt.md' and 'extended_rules.md' are in the root directory.")
-    # Fallback or exit if essential files are missing
-    SYSTEM_PROMPT_CONTENT = "You are an expert code reviewer."
-    EXTENDED_RULES_CONTENT = "Follow general coding best practices."
+# Load main prompt template from prompts folder
+PROMPT_TEMPLATE = load_prompt("code_review_prompt.txt")
 
 # --------------------------
 # Language detection and best practices
@@ -378,28 +349,50 @@ def code_review_agent(state: CodeReviewAgentState) -> CodeReviewAgentState:
         if language != "Unknown" and patch.strip():
             # Get language-specific best practices
             best_practices = LANGUAGE_BEST_PRACTICES.get(language, [])
-            best_practices_text = "\n".join(f"- {bp}" for bp in best_practices) if best_practices else "Follow general coding standards"
+            best_practices_text = "\n".join(f"- {bp}" for bp in best_practices) if best_practices else "Follow general coding standards."
 
-            # Build system prompt from template + rules + guidelines
-            guideline_text = getattr(state, "guideline_text", None)
-            system_prompt = _build_system_prompt(
+            # Get custom guidelines from state if provided
+            custom_guidelines = getattr(state, "guideline_text", None) or getattr(state, "custom_guidelines", None)
+            custom_guidelines_section = f"\n\n**Custom Project Guidelines:**\n{custom_guidelines}" if custom_guidelines else "\nNo custom guidelines provided."
+
+            # Format global rules and extended rules
+            global_rules_text = _format_global_rules_for_prompt(GLOBAL_RULES)
+            extended_rules_text = f"\n\n**Extended Best Practices:**\n{EXTENDED_RULES}" if EXTENDED_RULES else ""
+
+            # 🆕 RAG: Retrieve relevant context from vector database
+            rag_context = ""
+            if RAG_ENABLED:
+                try:
+                    retriever = get_rag_retriever()
+                    project_name = getattr(state, "project_name", None)
+                    
+                    # Get relevant context based on the code patch
+                    context = retriever.get_relevant_context(
+                        code_snippet=patch[:500],  # Use first 500 chars for search
+                        language=language,
+                        project_name=project_name,
+                        max_rules=5,
+                        max_guidelines=3
+                    )
+                    
+                    # Format context for prompt
+                    rag_context = retriever.format_context_for_prompt(context)
+                    if rag_context:
+                        print(f"  🔍 RAG: Retrieved {len(context.get('rules', []))} rules + {len(context.get('guidelines', []))} guidelines")
+                except Exception as e:
+                    print(f"  ⚠️ RAG retrieval failed: {e}")
+
+            # Build the complete prompt using the template
+            prompt = PROMPT_TEMPLATE.format(
+                filename=filename,
                 language=language,
-                best_practices_text=best_practices_text,
-                guideline_text=guideline_text,
+                best_practices_text=best_practices_text + extended_rules_text + global_rules_text + ("\n\n" + rag_context if rag_context else ""),
+                custom_guidelines_section=custom_guidelines_section,
+                patch=patch
             )
 
-            prompt = f"""{system_prompt}
-
-Analyze the following GitHub PR diff for a {language} file and produce the JSON array of issues as specified above.
-If there are no issues, return [].
-
-Diff for {filename}:
-{patch}
-```
-"""
-
             try:
-                response = client.invoke([HumanMessage(content=full_prompt_content)])
+                response = client.invoke([HumanMessage(content=prompt)])
                 llm_output = response.content
                 llm_issues = safe_parse_json(llm_output, filename)
                 if isinstance(llm_issues, list):
@@ -408,6 +401,10 @@ Diff for {filename}:
                     sections = group_code_by_context(code_blocks)
                     
                     for issue in llm_issues:
+                        # Ensure filename is set
+                        if "filename" not in issue:
+                            issue["filename"] = filename
+                        
                         # If LLM didn't provide code context, add it
                         if "code_snippet" not in issue or not issue["code_snippet"]:
                             # Use the first code section as context

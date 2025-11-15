@@ -41,12 +41,32 @@ if st.button("🚀 Start PR Review") and pr_url:
         custom_guidelines = guideline_file.read().decode("utf-8") if guideline_file else None
         state = PRSummaryAgentState(pr_url=pr_url, custom_guidelines=custom_guidelines)
         state.github_token = token if token else None
+        # Store full project identifier (owner/repo format)
+        state.project_name = f"{pr_info['owner']}/{pr_info['repo']}"
 
         # Read guideline file content (if provided)
         if guideline_file is not None:
             guideline_bytes = guideline_file.getvalue()
             try:
-                state.guideline_text = guideline_bytes.decode("utf-8", errors="ignore")
+                guideline_content = guideline_bytes.decode("utf-8", errors="ignore")
+                state.guideline_text = guideline_content
+                
+                # 🆕 Store in RAG vector database
+                try:
+                    from agents.vector_store import get_vector_store
+                    with st.spinner(f"📝 Storing {guideline_file.name} in RAG database..."):
+                        vector_store = get_vector_store()
+                        # Store with full project path (owner/repo) for proper filtering
+                        vector_store.store_project_guidelines(
+                            content=guideline_content,
+                            filename=guideline_file.name,
+                            project_name=f"{pr_info['owner']}/{pr_info['repo']}"
+                        )
+                    st.success(f"✅ Guidelines stored in RAG: {guideline_file.name}")
+                except ImportError:
+                    st.warning("⚠️ RAG not available (install: pip install chromadb sentence-transformers)")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not store in RAG: {e}")
             except Exception:
                 # Fallback: best-effort decoding
                 state.guideline_text = guideline_bytes.decode(errors="ignore")

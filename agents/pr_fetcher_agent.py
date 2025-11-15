@@ -1,8 +1,6 @@
 from agents.state import PRFetcherAgentState
 from github_fetcher import fetch_pr_files, parse_github_pr_url, parse_pr_files
 
-
-
 def pr_fetcher_agent(state: PRFetcherAgentState) -> PRFetcherAgentState:
     """
     PR Fetcher Agent.

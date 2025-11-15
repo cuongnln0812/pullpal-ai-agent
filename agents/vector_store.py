@@ -4,15 +4,17 @@ Vector Store for RAG-enhanced Code Review.
 Stores and retrieves:
 - Global review rules
 - User-provided project guidelines
-- Past review findings (optiona
+- Past review findings (optional)
 """
 
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Any, Optional
-import json
-from pathlib import Path
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class VectorStore:
@@ -32,8 +34,16 @@ class VectorStore:
             settings=Settings(anonymized_telemetry=False)
         )
         
-        # Initialize sentence transformer for embeddings
-        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
+        # Initialize OpenAI client for embeddings
+        api_key = os.getenv("EMBEDDING_API_KEY")
+        base_url = os.getenv("EMBEDDING_BASE_URL")
+        
+        if not api_key:
+            raise ValueError("EMBEDDING_API_KEY or OPENAI_API_KEY must be set in .env file")
+        
+        self.openai_client = OpenAI(api_key=api_key, base_url=base_url)
+        self.embedding_model = "text-embedding-3-small"
+        self.embedding_dimensions = 1536  # text-embedding-3-small default dimensions
         
         # Create or get collections
         self.rules_collection = self.client.get_or_create_collection(
@@ -49,16 +59,24 @@ class VectorStore:
         print(f"✓ Vector store initialized at {persist_directory}")
     
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for a list of texts.
+        """Generate embeddings for a list of texts using OpenAI text-embedding-3-small.
         
         Args:
             texts: List of text strings to embed
             
         Returns:
-            List of embedding vectors
+            List of embedding vectors (1536 dimensions each)
         """
-        embeddings = self.encoder.encode(texts, show_progress_bar=False)
-        return embeddings.tolist()
+        try:
+            response = self.openai_client.embeddings.create(
+                model=self.embedding_model,
+                input=texts
+            )
+            embeddings = [item.embedding for item in response.data]
+            return embeddings
+        except Exception as e:
+            print(f"❌ Error generating embeddings: {e}")
+            raise
     
     def store_review_rules(self, rules: List[Dict[str, Any]], source: str = "global"):
         """Store review rules in vector database.
